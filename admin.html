@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INACT AGENCY — Leads</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{ --black:#000; --white:#fff; --paper:#f4f4f2; --line:rgba(0,0,0,.16); --gray:#767672; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:'Inter',sans-serif; background:var(--white); color:var(--black); }
+  header{ padding:22px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  header h1{ font-family:'Space Grotesk',sans-serif; font-size:18px; margin:0; }
+  .mono{ font-family:'IBM Plex Mono',monospace; }
+  #loginScreen{ max-width:360px; margin:14vh auto; padding:0 20px; text-align:center; }
+  #loginScreen h2{ font-family:'Space Grotesk',sans-serif; }
+  #loginScreen input{ width:100%; padding:12px; border:1px solid var(--black); font-family:'IBM Plex Mono',monospace; margin-top:16px; }
+  #loginScreen button{ width:100%; margin-top:14px; padding:12px; background:var(--black); color:var(--white); border:0; font-family:'IBM Plex Mono',monospace; cursor:pointer; }
+  #loginError{ color:#b00020; font-size:13px; margin-top:10px; min-height:16px; }
+  main{ display:none; padding:24px 28px 60px; max-width:1200px; margin:0 auto; }
+  .toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
+  .toolbar .count{ font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--gray); }
+  .filters{ display:flex; gap:8px; flex-wrap:wrap; }
+  .filters button{ font-family:'IBM Plex Mono',monospace; font-size:12px; border:1px solid var(--black); background:transparent; padding:7px 12px; cursor:pointer; }
+  .filters button.active{ background:var(--black); color:var(--white); }
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  thead th{ text-align:left; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.04em; color:var(--gray); padding:10px 12px; border-bottom:1px solid var(--black); white-space:nowrap; }
+  tbody td{ padding:12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody tr:hover{ background:var(--paper); }
+  .lead-name{ font-weight:600; }
+  .lead-sub{ font-size:12px; color:var(--gray); margin-top:2px; }
+  select.status{ font-family:'IBM Plex Mono',monospace; font-size:12px; padding:6px 8px; border:1px solid var(--black); background:var(--white); }
+  .status-New{ font-weight:600; }
+  .status-Contacted{ color:#555; }
+  .status-Booked{ color:#000; font-weight:600; }
+  .status-Won{ color:#0a7a2e; }
+  .status-Lost{ color:#b00020; }
+  .del-btn{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--gray); background:none; border:0; cursor:pointer; text-decoration:underline; }
+  .del-btn:hover{ color:#b00020; }
+  .empty{ padding:60px 0; text-align:center; color:var(--gray); font-family:'IBM Plex Mono',monospace; }
+  a.wa{ color:var(--black); text-decoration:none; border-bottom:1px solid var(--black); }
+</style>
+</head>
+<body>
+
+  <div id="loginScreen">
+    <h2>I∧ — Leads</h2>
+    <p class="mono" style="font-size:12.5px;color:var(--gray);">Enter your admin token to view the pipeline.</p>
+    <input type="password" id="tokenInput" placeholder="ADMIN_TOKEN">
+    <button id="loginBtn">Enter</button>
+    <div id="loginError"></div>
+  </div>
+
+  <div id="app" style="display:none;">
+    <header>
+      <h1>I∧ — LEAD PIPELINE</h1>
+      <button class="del-btn" id="logoutBtn">log out</button>
+    </header>
+    <main id="main" style="display:block;">
+      <div class="toolbar">
+        <div class="count" id="countLabel">0 leads</div>
+        <div class="filters" id="filters">
+          <button data-filter="All" class="active">All</button>
+          <button data-filter="New">New</button>
+          <button data-filter="Contacted">Contacted</button>
+          <button data-filter="Booked">Booked</button>
+          <button data-filter="Won">Won</button>
+          <button data-filter="Lost">Lost</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Business</th>
+            <th>Service</th>
+            <th>Contact</th>
+            <th>Call time</th>
+            <th>Received</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="leadsBody"></tbody>
+      </table>
+      <div class="empty" id="emptyState" style="display:none;">No leads yet — once your intake form is live, submissions land here.</div>
+    </main>
+  </div>
+
+<script>
+(function(){
+  var API_BASE = window.location.origin; // backend serves /admin, so same origin
+  var token = sessionStorage.getItem('inact_admin_token') || '';
+  var currentFilter = 'All';
+  var leads = [];
+
+  function showApp(){
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadLeads();
+  }
+
+  if(token){ showApp(); }
+
+  document.getElementById('loginBtn').addEventListener('click', attemptLogin);
+  document.getElementById('tokenInput').addEventListener('keydown', function(e){
+    if(e.key === 'Enter') attemptLogin();
+  });
+
+  function attemptLogin(){
+    var val = document.getElementById('tokenInput').value.trim();
+    if(!val) return;
+    fetch(API_BASE + '/api/leads', { headers: { 'x-admin-token': val } })
+      .then(function(res){
+        if(res.status === 401){
+          document.getElementById('loginError').textContent = 'Incorrect token.';
+          return null;
+        }
+        return res.json();
+      })
+      .then(function(data){
+        if(data){
+          token = val;
+          sessionStorage.setItem('inact_admin_token', token);
+          leads = data;
+          showApp();
+          render();
+        }
+      })
+      .catch(function(){
+        document.getElementById('loginError').textContent = 'Could not reach the server.';
+      });
+  }
+
+  document.getElementById('logoutBtn').addEventListener('click', function(){
+    sessionStorage.removeItem('inact_admin_token');
+    location.reload();
+  });
+
+  function loadLeads(){
+    fetch(API_BASE + '/api/leads', { headers: { 'x-admin-token': token } })
+      .then(function(res){
+        if(res.status === 401){ sessionStorage.removeItem('inact_admin_token'); location.reload(); return []; }
+        return res.json();
+      })
+      .then(function(data){ leads = data || []; render(); });
+  }
+
+  document.querySelectorAll('#filters button').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('#filters button').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentFilter = btn.getAttribute('data-filter');
+      render();
+    });
+  });
+
+  function fmtDate(iso){
+    if(!iso) return '—';
+    var d = new Date(iso);
+    if(isNaN(d)) return iso;
+    return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  }
+
+  function render(){
+    var filtered = currentFilter === 'All' ? leads : leads.filter(function(l){ return l.status === currentFilter; });
+    document.getElementById('countLabel').textContent = filtered.length + (filtered.length === 1 ? ' lead' : ' leads');
+    var body = document.getElementById('leadsBody');
+    body.innerHTML = '';
+    document.getElementById('emptyState').style.display = filtered.length ? 'none' : 'block';
+
+    filtered.forEach(function(lead){
+      var tr = document.createElement('tr');
+
+      var waNumber = (lead.phone || '').replace(/[^0-9]/g,'');
+      var waHref = waNumber ? 'https://wa.me/' + waNumber : null;
+
+      tr.innerHTML =
+        '<td><div class="lead-name">' + escapeHtml(lead.businessName || '—') + '</div>' +
+        '<div class="lead-sub">' + escapeHtml(lead.industry || '—') + ' · ' + escapeHtml(lead.teamSize || '—') + '</div></td>' +
+        '<td><div>' + escapeHtml(lead.service || '—') + '</div><div class="lead-sub">' + escapeHtml(lead.focus || '') + '</div></td>' +
+        '<td><div>' + escapeHtml(lead.fullName || '—') + '</div>' +
+        '<div class="lead-sub">' + escapeHtml(lead.email || '') + '</div>' +
+        '<div class="lead-sub">' + (waHref ? '<a class="wa" href="' + waHref + '" target="_blank" rel="noopener">' + escapeHtml(lead.phone) + '</a>' : escapeHtml(lead.phone || '')) + '</div></td>' +
+        '<td>' + escapeHtml(fmtDate(lead.callTime)) + '</td>' +
+        '<td>' + escapeHtml(fmtDate(lead.createdAt)) + '</td>' +
+        '<td></td>' +
+        '<td><button class="del-btn" data-id="' + lead.id + '">remove</button></td>';
+
+      var statusCell = tr.children[5];
+      var select = document.createElement('select');
+      select.className = 'status status-' + lead.status;
+      ['New','Contacted','Booked','Won','Lost'].forEach(function(s){
+        var opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        if(s === lead.status) opt.selected = true;
+        select.appendChild(opt);
+      });
+      select.addEventListener('change', function(){
+        updateStatus(lead.id, select.value);
+      });
+      statusCell.appendChild(select);
+
+      body.appendChild(tr);
+    });
+
+    body.querySelectorAll('.del-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if(confirm('Remove this lead? This cannot be undone.')){
+          removeLead(btn.getAttribute('data-id'));
+        }
+      });
+    });
+  }
+
+  function updateStatus(id, status){
+    fetch(API_BASE + '/api/leads/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+      body: JSON.stringify({ status: status })
+    }).then(function(){
+      var lead = leads.find(function(l){ return l.id === id; });
+      if(lead) lead.status = status;
+      render();
+    });
+  }
+
+  function removeLead(id){
+    fetch(API_BASE + '/api/leads/' + id, {
+      method: 'DELETE',
+      headers: { 'x-admin-token': token }
+    }).then(function(){
+      leads = leads.filter(function(l){ return l.id !== id; });
+      render();
+    });
+  }
+
+  function escapeHtml(str){
+    return String(str == null ? '' : str).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+})();
+</script>
+</body>
+</html>
